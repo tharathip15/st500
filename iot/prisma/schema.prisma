@@ -1,0 +1,221 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh_token_expires_in Int?
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String?
+  email           String?   @unique
+  emailVerified   DateTime?
+  image           String?
+  role            String    @default("USER")
+  hashedPassword  String?
+  accounts        Account[]
+  sessions        Session[]
+  devices         Device[]
+  notifications   Notification[]
+  alertRules      AlertRule[]
+  webhooks        Webhook[]
+  authenticators Authenticator[]
+}
+
+model Authenticator {
+    id        Int      @id @default(autoincrement())
+    userId    String
+    secret    String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    user User @relation(fields: [userId], references: [id])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Device {
+  id          String       @id @default(cuid())
+  name        String
+  type        DeviceType   @default(SENSOR)
+  location    String?
+  status      DeviceStatus @default(ACTIVE)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  waterData   WaterData[]
+  lightData   LightData[]
+  pumpLogs    PumpLog[]
+  alertRules  AlertRule[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model WaterData {
+  id              Int      @id @default(autoincrement())
+  timestamp       DateTime @default(now())
+  temperature     Float    // °C
+  ph              Float    // pH value
+  dissolvedOxygen Float    // mg/L
+  turbidity       Float    // NTU
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, timestamp])
+}
+
+model LightData {
+  id          Int      @id @default(autoincrement())
+  timestamp   DateTime @default(now())
+  intensity   Float    // Lux
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, timestamp])
+}
+
+model PumpLog {
+  id          Int        @id @default(autoincrement())
+  timestamp   DateTime   @default(now())
+  action      PumpAction
+  duration    Int?       // seconds
+  deviceId    String
+  device      Device     @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, timestamp])
+}
+
+model Notification {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  title       String
+  message     String
+  type        NotificationType
+  isRead      Boolean     @default(false)
+  metadata    Json?       // Additional data
+  createdAt   DateTime    @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+model AlertRule {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  deviceId    String?
+  device      Device?     @relation(fields: [deviceId], references: [id])
+  name        String
+  description String?
+  condition   Json        // e.g. { metric: "temperature", operator: ">", value: 30 }
+  severity    AlertSeverity
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  alertHistory AlertHistory[]
+
+  @@index([userId, deviceId])
+}
+
+model AlertHistory {
+  id          String      @id @default(cuid())
+  alertRuleId String
+  alertRule   AlertRule   @relation(fields: [alertRuleId], references: [id])
+  triggeredAt DateTime    @default(now())
+  resolvedAt  DateTime?
+  value       Float       // Value that triggered the alert
+  status      AlertStatus @default(TRIGGERED)
+
+  @@index([alertRuleId, triggeredAt])
+}
+
+model Webhook {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  url         String
+  secret      String?     // For HMAC verification
+  eventTypes  String[]    // Types of events to receive
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+
+  @@index([userId])
+}
+
+// Enum Definitions
+enum DeviceType {
+  SENSOR      // Water quality sensor
+  LIGHT       // Light sensor/controller
+  PUMP        // Water pump
+  VALVE       // Water valve
+  CONTROLLER  // Main controller
+}
+
+enum DeviceStatus {
+  ACTIVE      // Working normally
+  INACTIVE    // Turned off
+  MAINTENANCE // Under maintenance
+  ERROR       // Error state
+}
+
+enum PumpAction {
+  ON          // Pump turned on
+  OFF         // Pump turned off
+}
+
+enum NotificationType {
+  DEVICE_ALERT    // Alert from device
+  SYSTEM          // System notification
+  MAINTENANCE     // Maintenance reminder
+  SECURITY        // Security alert
+  WATER_QUALITY   // Water quality warning
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  TRIGGERED     // Alert triggered
+  ACKNOWLEDGED  // Alert acknowledged by user
+  RESOLVED      // Alert resolved
+  DISMISSED     // Alert dismissed
+}
